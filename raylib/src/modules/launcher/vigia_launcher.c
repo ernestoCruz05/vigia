@@ -14,6 +14,17 @@ static float cubic_out(float p)
     return 1.0f - t * t * t;
 }
 
+static int launcher_slot_width(const VigiaLauncherConfig *config)
+{
+    return config->icon_size + VIGIA_LAUNCHER_GAP;
+}
+
+static int launcher_slot_height(const VigiaLauncherConfig *config)
+{
+    return VIGIA_LAUNCHER_LIFT + config->icon_size - VIGIA_LAUNCHER_SINK
+        + VIGIA_LAUNCHER_SHELF_DEPTH + VIGIA_LAUNCHER_SHELF_LIP;
+}
+
 void vigia_launcher_state_init(VigiaLauncherState *state)
 {
     if (state == NULL) {
@@ -22,7 +33,7 @@ void vigia_launcher_state_init(VigiaLauncherState *state)
     *state = (VigiaLauncherState){
         .config = {
             .enabled = false,
-            .icon_size = 48,
+            .icon_size = 24,
             .hover_delay_ms = 200,
             .leave_delay_ms = 350,
             .app_count = 0U,
@@ -176,8 +187,8 @@ void vigia_launcher_handle_wheel(VigiaLauncherState *state,
     if (state == NULL || wheel_delta == 0 || !state->config.enabled) {
         return;
     }
-    const int slot_w = state->config.icon_size + 16;
-    const int slot_h = state->config.icon_size + 24;
+    const int slot_w = launcher_slot_width(&state->config);
+    const int slot_h = launcher_slot_height(&state->config);
     if (vigia_launcher_is_suppressed(screen_width, screen_height, slot_w, slot_h, state->config.app_count)) {
         return;
     }
@@ -252,8 +263,8 @@ void vigia_launcher_handle_pointer_state(VigiaLauncherState *state,
         return;
     }
 
-    const int slot_w = state->config.icon_size + 16;
-    const int slot_h = state->config.icon_size + 24;
+    const int slot_w = launcher_slot_width(&state->config);
+    const int slot_h = launcher_slot_height(&state->config);
     if (vigia_launcher_is_suppressed(screen_width, screen_height, slot_w, slot_h, state->config.app_count)) {
         return;
     }
@@ -328,8 +339,8 @@ void vigia_launcher_update_state(VigiaLauncherState *state, float delta_time,
         return;
     }
 
-    const int slot_w = state->config.icon_size + 16;
-    const int slot_h = state->config.icon_size + 24;
+    const int slot_w = launcher_slot_width(&state->config);
+    const int slot_h = launcher_slot_height(&state->config);
     if (vigia_launcher_is_suppressed(screen_width, screen_height, slot_w, slot_h, state->config.app_count)) {
         state->visible = false;
         state->opacity = 0.0f;
@@ -413,8 +424,8 @@ size_t vigia_launcher_get_input_regions(const VigiaLauncherState *state,
     if (state == NULL || regions == NULL || capacity == 0U || !state->config.enabled) {
         return 0U;
     }
-    const int slot_w = state->config.icon_size + 16;
-    const int slot_h = state->config.icon_size + 24;
+    const int slot_w = launcher_slot_width(&state->config);
+    const int slot_h = launcher_slot_height(&state->config);
     if (vigia_launcher_is_suppressed(screen_width, screen_height, slot_w, slot_h, state->config.app_count)) {
         return 0U;
     }
@@ -433,6 +444,83 @@ size_t vigia_launcher_get_input_regions(const VigiaLauncherState *state,
     return 1U;
 }
 
+static void draw_shelf(VigiaRect panel, int shelf_y, float alpha)
+{
+    const Color fill = vigia_color(VIGIA_SURFACE_RGBA, VIGIA_LAUNCHER_SHELF_ALPHA * alpha);
+    const Color keyline = vigia_color(VIGIA_KEYLINE_RGBA, alpha);
+    for (int row = 0; row < VIGIA_LAUNCHER_SHELF_DEPTH; row++) {
+        const int inset = VIGIA_LAUNCHER_SHELF_INSET * (VIGIA_LAUNCHER_SHELF_DEPTH - row)
+            / VIGIA_LAUNCHER_SHELF_DEPTH;
+        const int left = panel.x + inset;
+        const int width = panel.width - inset * 2;
+        const int y = shelf_y + row;
+        DrawRectangle(left, y, width, 1, fill);
+        if (row == 0) {
+            DrawRectangle(left, y, width, 1, keyline);
+        } else {
+            DrawRectangle(left, y, 1, 1, keyline);
+            DrawRectangle(left + width - 1, y, 1, 1, keyline);
+        }
+    }
+
+    const VigiaRect lip = {
+        .x = panel.x,
+        .y = shelf_y + VIGIA_LAUNCHER_SHELF_DEPTH,
+        .width = panel.width,
+        .height = VIGIA_LAUNCHER_SHELF_LIP,
+    };
+    vigia_draw_surface(lip, alpha);
+    const Rectangle lip_face = {
+        .x = (float)(lip.x + 1),
+        .y = (float)(lip.y + 1),
+        .width = (float)(lip.width - 2),
+        .height = (float)(lip.height - 2),
+    };
+    DrawRectangleRec(lip_face, vigia_color(VIGIA_FOREGROUND_RGBA, VIGIA_LAUNCHER_LIP_TINT * alpha));
+}
+
+static Texture2D launcher_icon(const VigiaLauncherState *state, size_t index)
+{
+    if (state->config.apps == NULL || state->icon_cache == NULL) {
+        return (Texture2D){0};
+    }
+    const VigiaAppConfig *app = &state->config.apps[index];
+    if (app->icon[0] == '\0') {
+        return (Texture2D){0};
+    }
+    return vigia_icon_cache_find(state->icon_cache, app->icon, state->config.icon_size);
+}
+
+static void draw_icons(const VigiaLauncherState *state, VigiaRect panel, int slot_w,
+                       int base_y, bool reflected, float alpha)
+{
+    const int viewport_left = panel.x + 12;
+    const int viewport_right = panel.x + panel.width - 12;
+    const int icon_size = state->config.icon_size;
+
+    for (size_t i = 0U; i < state->config.app_count; i++) {
+        const int slot_x = viewport_left + ((int)i - state->scroll_offset) * slot_w;
+        const int slot_r = slot_x + slot_w;
+        if (slot_x >= viewport_right || slot_r <= viewport_left) {
+            continue;
+        }
+        const Texture2D tex = launcher_icon(state, i);
+        if (tex.id == 0U) {
+            continue;
+        }
+
+        const bool lifted = state->hovered_slot == (int)i && state->pressed_slot != (int)i;
+        const int lift = lifted ? VIGIA_LAUNCHER_LIFT : 0;
+        const int icon_x = slot_x + (slot_w - icon_size) / 2;
+        const int icon_y = reflected ? base_y + lift : base_y - icon_size - lift;
+        const float src_height = reflected ? -(float)tex.height : (float)tex.height;
+        const float tint = reflected ? VIGIA_LAUNCHER_REFLECTION_ALPHA * alpha : alpha;
+        const Rectangle src = { 0.0f, 0.0f, (float)tex.width, src_height };
+        const Rectangle dst = { (float)icon_x, (float)icon_y, (float)icon_size, (float)icon_size };
+        DrawTexturePro(tex, src, dst, (Vector2){0.0f, 0.0f}, 0.0f, vigia_color(0xFFFFFFFFU, tint));
+    }
+}
+
 void vigia_launcher_render_state(VigiaLauncherState *state, VigiaDraw *draw,
                                  int screen_width, int screen_height)
 {
@@ -444,56 +532,27 @@ void vigia_launcher_render_state(VigiaLauncherState *state, VigiaDraw *draw,
     if (alpha <= 0.001f) {
         return;
     }
-    const int slot_w = state->config.icon_size + 16;
-    const int slot_h = state->config.icon_size + 24;
+    const int slot_w = launcher_slot_width(&state->config);
+    const int slot_h = launcher_slot_height(&state->config);
     if (vigia_launcher_is_suppressed(screen_width, screen_height, slot_w, slot_h, state->config.app_count)) {
         return;
     }
 
     const VigiaRect panel = vigia_launcher_compute_panel_rect(screen_width, screen_height, slot_w, slot_h, state->config.app_count);
-    vigia_draw_surface(panel, alpha);
+    const int shelf_y = panel.y + panel.height - VIGIA_LAUNCHER_SHELF_LIP - VIGIA_LAUNCHER_SHELF_DEPTH;
+    draw_shelf(panel, shelf_y, alpha);
 
+    const int base_y = shelf_y + VIGIA_LAUNCHER_SINK;
     const int viewport_left = panel.x + 12;
-    const int viewport_right = panel.x + panel.width - 12;
-    const int icon_size = state->config.icon_size;
+    const int viewport_width = panel.width - 24;
 
-    BeginScissorMode(viewport_left, panel.y, panel.width - 24, panel.height);
+    BeginScissorMode(viewport_left, base_y, viewport_width,
+                     VIGIA_LAUNCHER_SHELF_DEPTH - VIGIA_LAUNCHER_SINK);
+    draw_icons(state, panel, slot_w, base_y, true, alpha);
+    EndScissorMode();
 
-    for (size_t i = 0U; i < state->config.app_count; i++) {
-        const int slot_x = viewport_left + ((int)i - state->scroll_offset) * slot_w;
-        const int slot_r = slot_x + slot_w;
-        if (slot_x >= viewport_right || slot_r <= viewport_left) {
-            continue;
-        }
-
-        const Rectangle highlight = {
-            .x = (float)(slot_x + 4),
-            .y = (float)(panel.y + 4),
-            .width = (float)(slot_w - 8),
-            .height = (float)(slot_h - 8),
-        };
-
-        if (state->pressed_slot == (int)i && state->hovered_slot == (int)i) {
-            DrawRectangleRec(highlight, vigia_color(VIGIA_FOREGROUND_RGBA, 0.14f * alpha));
-        } else if (state->hovered_slot == (int)i) {
-            DrawRectangleRec(highlight, vigia_color(VIGIA_FOREGROUND_RGBA, 0.08f * alpha));
-        }
-
-        if (state->config.apps != NULL && state->icon_cache != NULL) {
-            const VigiaAppConfig *app = &state->config.apps[i];
-            if (app->icon[0] != '\0') {
-                const Texture2D tex = vigia_icon_cache_find(state->icon_cache, app->icon, icon_size);
-                if (tex.id > 0U) {
-                    const int icon_x = slot_x + (slot_w - icon_size) / 2;
-                    const int icon_y = panel.y + (slot_h - icon_size) / 2;
-                    const Rectangle src = { 0.0f, 0.0f, (float)tex.width, (float)tex.height };
-                    const Rectangle dst = { (float)icon_x, (float)icon_y, (float)icon_size, (float)icon_size };
-                    DrawTexturePro(tex, src, dst, (Vector2){0.0f, 0.0f}, 0.0f, vigia_color(0xFFFFFFFFU, alpha));
-                }
-            }
-        }
-    }
-
+    BeginScissorMode(viewport_left, panel.y, viewport_width, base_y - panel.y);
+    draw_icons(state, panel, slot_w, base_y, false, alpha);
     EndScissorMode();
 }
 
@@ -613,9 +672,9 @@ static void module_update(VigiaModule *self, float delta_time)
     if (state->host != NULL) {
         state->host->launcher_footprint = (VigiaRect){0};
         if (state->config.enabled && !vigia_launcher_is_suppressed(sw, sh,
-                state->config.icon_size + 16, state->config.icon_size + 24, state->config.app_count)) {
+                launcher_slot_width(&state->config), launcher_slot_height(&state->config), state->config.app_count)) {
             state->host->launcher_footprint = vigia_launcher_compute_panel_rect(sw, sh,
-                state->config.icon_size + 16, state->config.icon_size + 24, state->config.app_count);
+                launcher_slot_width(&state->config), launcher_slot_height(&state->config), state->config.app_count);
         }
     }
     if (!state->config.enabled) {
@@ -653,8 +712,8 @@ static bool module_presentation_changed(VigiaModule *self)
     const int width = IsWindowReady() ? GetScreenWidth() : state->screen_width;
     const int height = IsWindowReady() ? GetScreenHeight() : state->screen_height;
     const bool visible = state->config.enabled && state->opacity > 0.001F
-        && !vigia_launcher_is_suppressed(width, height, state->config.icon_size + 16,
-            state->config.icon_size + 24, state->config.app_count);
+        && !vigia_launcher_is_suppressed(width, height, launcher_slot_width(&state->config),
+            launcher_slot_height(&state->config), state->config.app_count);
     const bool changed = visible != state->presented_visible || (visible
         && (state->opacity != state->presented_opacity
             || state->hovered_slot != state->presented_hovered

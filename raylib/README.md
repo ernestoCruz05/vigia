@@ -34,7 +34,7 @@ only the keys listed below:
 | `osd` | `enabled` | `true` | Boolean |
 | `notifications` | `enabled` | `true` | Boolean |
 | `launcher` | `enabled` | Whether entries exist | Boolean |
-| `launcher` | `icon_size` | `48` | Integer, 24 to 96 pixels |
+| `launcher` | `icon_size` | `24` | Integer, 24 to 96 pixels |
 | `launcher` | `hover_delay_ms` | `200` | Integer, 0 to 2000 |
 | `launcher` | `leave_delay_ms` | `350` | Integer, 0 to 2000 |
 | `launcher` | `apps` | Empty | Up to 64 app tables |

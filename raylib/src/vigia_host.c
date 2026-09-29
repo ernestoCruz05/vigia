@@ -108,7 +108,7 @@ bool vigia_host_init(VigiaHost *host, const char *explicit_config)
         return false;
     }
     host->config = (VigiaConfig){ .version = 1, .menu_enabled = true, .osd_enabled = true,
-        .notifications_enabled = true, .launcher = { .icon_size = 48, .hover_delay_ms = 200, .leave_delay_ms = 350 },
+        .notifications_enabled = true, .launcher = { .icon_size = 24, .hover_delay_ms = 200, .leave_delay_ms = 350 },
         .music = { .display_ms = 5000 } };
     for (size_t i = 0U; i < host->module_count; i++) {
         if (host->modules[i]->init != NULL && !host->modules[i]->init(host->modules[i], host)) {

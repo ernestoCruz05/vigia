@@ -420,7 +420,7 @@ bool vigia_config_parse(const char *content, size_t length, const char *base_dir
     parsed.menu_enabled = true;
     parsed.osd_enabled = true;
     parsed.notifications_enabled = true;
-    parsed.launcher.icon_size = 48;
+    parsed.launcher.icon_size = 24;
     parsed.launcher.hover_delay_ms = 200;
     parsed.launcher.leave_delay_ms = 350;
     parsed.music.enabled = true;
@@ -686,7 +686,7 @@ bool vigia_config_load_default(VigiaConfig *config, const char *explicit_path,
             .notifications_enabled = true,
             .launcher = {
                 .enabled = false,
-                .icon_size = 48,
+                .icon_size = 24,
                 .hover_delay_ms = 200,
                 .leave_delay_ms = 350,
                 .app_count = 0U,
